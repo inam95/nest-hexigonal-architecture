@@ -7,53 +7,69 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import {
-  CreateUserDto,
-  CreateUserUseCase,
-} from '../application/use-cases/create-user.use-case';
-import { DeleteUserUseCase } from '../application/use-cases/delete-user.use-case';
-import { GetUserUseCase } from '../application/use-cases/get-user.use-case';
-import { ListUsersUseCase } from '../application/use-cases/list-users.use-case';
-import {
-  UpdateUserDto,
-  UpdateUserUseCase,
-} from '../application/use-cases/update-user.use-case';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CreateUserCommand } from '../application/commands/create-user.command';
+import { User } from '../domain/entities/user.entity';
+import { GetUserQuery } from '../application/queries/get-user.query';
+import { ListUserQuery } from '../application/queries/list-user.query';
+import { DeleteUserCommand } from '../application/commands/delete-user.command';
+import { UpdateUserCommand } from '../application/commands/update-user.command';
 
 @Controller('users')
 export class UserController {
   constructor(
-    private readonly createUserUseCase: CreateUserUseCase,
-    private readonly getUserUseCase: GetUserUseCase,
-    private readonly listUsersUseCase: ListUsersUseCase,
-    private readonly deleteUserUseCase: DeleteUserUseCase,
-    private readonly updateUserUseCase: UpdateUserUseCase,
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
   ) {}
 
   @Post()
-  async createUser(@Body() createUserDto: CreateUserDto) {
-    return this.createUserUseCase.execute(createUserDto);
+  async createUser(@Body() request: CreateUserCommand) {
+    const command = new CreateUserCommand(request.email, request.name);
+    const user = await this.commandBus.execute<CreateUserCommand, User>(
+      command,
+    );
+    return mapUserToResponse(user);
   }
 
   @Get(':id')
   async getUser(@Param('id') id: string) {
-    return this.getUserUseCase.execute(id);
+    const query = new GetUserQuery(id);
+    const user = await this.queryBus.execute<GetUserQuery, User>(query);
+    return mapUserToResponse(user);
   }
 
   @Get()
   async listUsers() {
-    return this.listUsersUseCase.execute();
-  }
-
-  @Delete(':id')
-  async deleteUser(@Param('id') id: string) {
-    return this.deleteUserUseCase.execute(id);
+    const query = new ListUserQuery();
+    const users = await this.queryBus.execute<ListUserQuery, User[]>(query);
+    return users.map(mapUserToResponse);
   }
 
   @Patch(':id')
   async updateUser(
     @Param('id') id: string,
-    @Body() updateUserDto: UpdateUserDto,
+    @Body() request: UpdateUserCommand,
   ) {
-    return this.updateUserUseCase.execute(id, updateUserDto);
+    const command = new UpdateUserCommand(id, request.name, request.email);
+    const user = await this.commandBus.execute<UpdateUserCommand, User>(
+      command,
+    );
+    return mapUserToResponse(user);
+  }
+
+  @Delete(':id')
+  async deleteUser(@Param('id') id: string) {
+    const command = new DeleteUserCommand(id);
+    return await this.commandBus.execute<DeleteUserCommand, void>(command);
   }
 }
+
+export const mapUserToResponse = (user: User) => {
+  return {
+    id: user.getId().getValue(),
+    email: user.getEmail().getValue(),
+    name: user.getName(),
+    createdAt: user.getCreatedAt(),
+    updatedAt: user.getUpdatedAt(),
+  };
+};
